@@ -3,13 +3,31 @@ public class KdTree {
     private class BNode {
         private int level;
         private Point2D key;
+        private RectHV rect;
         private BNode lchild, rchild;
-        public BNode(Point2D k, int l)
+        public BNode(Point2D k, int l, RectHV r)
         {
             key = k;
             level = l;
             lchild = null;
             rchild = null;
+            rect = r;
+        }
+        public RectHV lsubRect()
+        {
+            return new RectHV(rect.xmin(), rect.ymin(), key.x(), rect.ymax());
+        }
+        public RectHV rsubRect()
+        {
+            return new RectHV(key.x(), rect.ymin(), rect.xmax(), rect.ymax());
+        }
+        public RectHV usubRect()
+        {
+            return new RectHV(rect.xmin(), key.y(), rect.xmax(), rect.ymax());
+        }
+        public RectHV dsubRect()
+        {
+            return new RectHV(rect.xmin(), rect.ymin(), rect.xmax(), key.y());
         }
     }
     private class Segment {
@@ -19,8 +37,8 @@ public class KdTree {
         {
             start = p1;
             end = p2;
-            if (start.x() == end.x()) flag = 1;  // vertical
-            else flag = 2;  //horizontal    
+            if (start.x() == end.x())   flag = 1;  // vertical
+            else                        flag = 2;  //horizontal    
         }
         public String toString()
         {
@@ -47,7 +65,7 @@ public class KdTree {
             {
                 if (sg.flag == 1 && sg.start.y() < p.y() && sg.end.y() > p.y())
                 {
-                    if (sg.start.x() < p.x())
+                    if (sg.start.x() <= p.x())
                     {
                         double dis = p.x() - sg.start.x();
                         if (dis < curlDis)
@@ -78,7 +96,7 @@ public class KdTree {
             {
                 if (sg.flag == 2 && sg.start.x() < p.x() && sg.end.x() > p.x())
                 {
-                    if (sg.start.y() < p.y())
+                    if (sg.start.y() <= p.y())
                     {
                         double dis = p.y() - sg.start.y();
                         if (dis < curdDis)
@@ -106,6 +124,8 @@ public class KdTree {
     private BNode root;
     private Segments sgs;
     private Point2D nearp;
+    private double neard;
+    private int visited;
     public KdTree()                               // construct an empty set of points 
     {
          this.root = null;
@@ -125,27 +145,33 @@ public class KdTree {
     
     public void insert(Point2D p)              // add the point to the set (if it is not already in the set)
     {
-        this.root = put(this.root, p, 0);
+        this.root = put(null, this.root, p, 0, 0);
     }
     
-    private BNode put(BNode node, Point2D p, int l)
+    private BNode put(BNode pnode, BNode node, Point2D p, int l, int r)
     {
         if (node == null)
         {
             this.size += 1;
-            return new BNode(p, l);
+            RectHV rect = null;
+            if (r == 0)      rect = new RectHV(0, 0, 1, 1);
+            else if (r == 1) rect = pnode.lsubRect();
+            else if (r == 2) rect = pnode.rsubRect();
+            else if (r == 3) rect = pnode.dsubRect();
+            else if (r == 4) rect = pnode.usubRect();
+            return new BNode(p, l, rect);
         }
         if (node.level % 2 == 0)
         {
-            if (p.x() > node.key.x()) node.rchild = put(node.rchild, p, l+1);
-            else if (p.x() < node.key.x()) node.lchild = put(node.lchild, p, l+1);
-            else if (p.y() != node.key.y()) node.lchild = put(node.lchild, p, l+1);
+            if (p.x() < node.key.x())       node.lchild = put(node, node.lchild, p, l+1, 1);
+            else if (p.x() > node.key.x())  node.rchild = put(node, node.rchild, p, l+1, 2);
+            else if (p.y() != node.key.y()) node.rchild = put(node, node.rchild, p, l+1, 2);
         }
         else
         {
-            if (p.y() > node.key.y()) node.rchild = put(node.rchild, p, l+1);
-            else if (p.y() < node.key.y()) node.lchild = put(node.lchild, p, l+1);
-            else if (p.x() != node.key.x()) node.lchild = put(node.lchild, p, l+1);
+            if (p.y() < node.key.y())       node.lchild = put(node, node.lchild, p, l+1, 3);
+            else if (p.y() > node.key.y())  node.rchild = put(node, node.rchild, p, l+1, 4);
+            else if (p.x() != node.key.x()) node.rchild = put(node, node.rchild, p, l+1, 4);
         }
         return node;
     }
@@ -159,12 +185,12 @@ public class KdTree {
             if (cur.key.equals(p)) return true;
             if (cur.level % 2 == 0)
             {
-                if (p.x() > cur.key.x()) cur = cur.rchild;
+                if (p.x() >= cur.key.x()) cur = cur.rchild;
                 else cur = cur.lchild;
             }
             else
             {
-                if (p.y() > cur.key.y()) cur = cur.rchild;
+                if (p.y() >= cur.key.y()) cur = cur.rchild;
                 else cur = cur.lchild;   
             }
         }
@@ -219,23 +245,20 @@ public class KdTree {
     private void range(BNode node, RectHV rect, Queue<Point2D> qu)
     {
         if (node == null) return;
-        if (rect.distanceTo(node.key) == 0) qu.enqueue(node.key);
-        if (node.level % 2 == 0)
+        if (rect.intersects(node.rect))
         {
-            if (rect.xmax() > node.key.x()) range(node.rchild, rect, qu);
-            if (rect.xmin() <= node.key.x() || rect.xmax() == node.key.x()) range(node.lchild, rect, qu);
-        }
-        else
-        {
-            if (rect.ymax() > node.key.y()) range(node.rchild, rect, qu);
-            if (rect.ymin() <= node.key.y() || rect.xmax() == node.key.y()) range(node.lchild, rect, qu);
-        }
+            if (rect.contains(node.key)) qu.enqueue(node.key);
+            range(node.rchild, rect, qu);
+            range(node.lchild, rect, qu);
+        }    
     }
     
     public Point2D nearest(Point2D p)             // a nearest neighbor in the set to point p; null if the set is empty 
     {
         if (this.root == null) return null;
         this.nearp = root.key;
+        this.neard = 2;
+        this.visited = 0;
         nearest(root,  p);
         return nearp;
     }
@@ -243,50 +266,39 @@ public class KdTree {
     private void nearest(BNode node, Point2D p)
     {
         if (node == null) return;
-        if (node.key.distanceTo(p) < this.nearp.distanceTo(p)) this.nearp = node.key;
-        if (node.level % 2 == 0)
+        if (node.rect.distanceTo(p) <= this.neard)
         {
-            if (p.x() <= node.key.x())
+            this.visited += 1;
+            if (node.key.distanceTo(p) < this.neard)
             {
-                if (node.lchild != null && node.lchild.key.distanceTo(p) < node.key.x() - p.x())
-                    nearest(node.lchild, p);
-                else
+                this.nearp = node.key;
+                this.neard = node.key.distanceTo(p);
+            }
+            if (node.level % 2 == 0)
+            {
+                if (p.x() < node.key.x())
                 {
                     nearest(node.lchild, p);
+                    nearest(node.rchild, p);  
+                }
+                else 
+                {
                     nearest(node.rchild, p);
+                    nearest(node.lchild, p);                    
                 }
             }
-            else
+            else  // node.level % 2 == 1
             {
-                if (node.rchild != null && node.rchild.key.distanceTo(p) < p.x() - node.key.x())
-                    nearest(node.rchild, p);
-                else
+                if (p.y() < node.key.y())
                 {
-                    nearest(node.rchild, p);
                     nearest(node.lchild, p);
+                    nearest(node.rchild, p);                   
                 }
-            }
-        }
-        else {
-            if (p.y() <= node.key.y())
-            {
-                if (node.lchild != null && node.lchild.key.distanceTo(p) < node.key.y() - p.y())
-                    nearest(node.lchild, p);
                 else
                 {
-                    nearest(node.lchild, p);
                     nearest(node.rchild, p);
+                    nearest(node.lchild, p);                           
                 }
-            }
-            else
-            {
-                if (node.rchild != null && node.rchild.key.distanceTo(p) < p.y() - node.key.y())
-                    nearest(node.rchild, p);
-                else
-                {
-                    nearest(node.rchild, p);
-                    nearest(node.lchild, p);
-                }            
             }
         }
     }
@@ -303,17 +315,15 @@ public class KdTree {
 //        }
         dt.insert(new Point2D(0.7, 0.2));
         dt.insert(new Point2D(0.5, 0.4));
-        dt.insert(new Point2D(0.5, 0.5));
         dt.insert(new Point2D(0.2, 0.3));
-        dt.insert(new Point2D(0.3, 0.3));
         dt.insert(new Point2D(0.4, 0.7));
-        dt.insert(new Point2D(0.9, 0.6));
-        dt.insert(new Point2D(0.9, 0.5));
-        dt.insert(new Point2D(0.4, 0.8));
-        dt.draw();
-        System.out.println(dt.size());
-        Point2D nearp = dt.nearest(new Point2D(0.9, 0.957));
-        System.out.println(nearp.toString());
+        dt.insert(new Point2D(0.5, 0.7));
+        dt.insert(new Point2D(0.7, 0.7));
+        dt.insert(new Point2D(0.8, 0.7));
+//        dt.draw();
+//        System.out.println(dt.size());
+//        Point2D nearp = dt.nearest(new Point2D(0.1, 0.5));
+//        System.out.println(nearp.toString());
 //        RectHV rect = new RectHV(0.4, 0.1, 0.95, 0.95);
 //        rect.draw();
 //        for(Point2D p : dt.range(rect))
